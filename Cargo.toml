@@ -1,8 +1,8 @@
 [package]
 name = "bno055"
 description = "Bosch Sensortec BNO055 9-axis IMU driver"
-version = "0.4.0" # Remember to update lib.rs
-authors = ["Eugene P. <eupn@protonmail.com>", "Henrik B. <hargonix@gmail.com>"]
+version = "0.5.0" # Remember to update lib.rs
+authors = ["Eugene P. <eupn@protonmail.com>", "Henrik B. <hargonix@gmail.com>", "Atin M. <atinm.dev@gmail.com"]
 repository = "https://github.com/eupn/bno055"
 edition = "2018"
 categories = [
@@ -12,6 +12,7 @@ categories = [
 ]
 keywords = [
     "embedded-hal-driver",
+    "embedded-io-async",
     "bno055",
 ]
 license-file = "LICENSE"
@@ -30,14 +31,29 @@ num-derive = "0.4.1"
 
 defmt = { version = "0.3", optional = true }
 
-embedded-hal = { version = "1.0" }
+embedded-io-async = { version = "0.6" }
+embassy-time = { version = "0.4.0", optional = true }
+embedded-hal-async = "1.0.0"
 
 [features]
 default = []
 std = []
 
-defmt-03 = ["dep:defmt", "embedded-hal/defmt-03"]
+i2c = []
+uart = ["embassy-time"]
+
+defmt-03 = ["dep:defmt"]
 serde = ["dep:serde", "mint/serde"]
 
 [dev-dependencies]
-linux-embedded-hal = "0.4"
+arduino-hal = { git = "https://github.com/Rahix/avr-hal", branch = "main" }
+panic-halt = "0.2"
+avr-device = "0.5"
+
+[[example]]
+name = "calibrate_i2c"
+path = "examples/calibrate_i2c.rs"
+
+[[example]]
+name = "calibrate_uart"
+path = "examples/calibrate_uart.rs"
