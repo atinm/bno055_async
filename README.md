@@ -63,7 +63,7 @@ so be careful that you're not enabling `serde`'s `std` feature by accident (see 
     // let delay = ...;
 
     // Init BNO055 IMU
-    let mut imu = bno055::Bno055::new(i2c);
+    let mut imu = bno055::Bno055I2c::new(i2c);
 
     imu.init(&mut delay)?;
 
@@ -72,6 +72,60 @@ so be careful that you're not enabling `serde`'s `std` feature by accident (see 
 
     Ok(imu)
     ```
+
+### UART Example
+
+
+You can also use the driver over UART with the Bno055Uart type:
+
+> **Hardware note:** To enable UART mode on the BNO055, the PS1 pin must be pulled **high** (logic 1) at power-up. This configures the chip to use UART instead of I2C. Make sure the voltage level matches your microcontroller (typically 3.3V).
+
+```rust
+// ... declare and configure your UART and Delay implementations ...
+// let uart = ...;
+// let delay = ...;
+
+// Init BNO055 IMU over UART
+let mut imu = bno055::Bno055Uart::new(uart);
+
+imu.init(&mut delay)?;
+
+// Enable 9-degrees-of-freedom sensor fusion mode
+imu.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay)?;
+
+Ok(imu)
+```
+
+#### UART Communication Notes
+
+- The BNO055 UART interface can sometimes behave unpredictably if data is sent too quickly.
+- It is recommended to insert a short delay (e.g., 2ms) between each byte sent to the device to ensure reliable communication.
+- After issuing a soft reset, the device may not respond to the reset command and can drop the response mid-transmission. The correct behavior is to poll the chip ID register until the device responds with the correct ID.
+- Always check the 2-byte response from the BNO055 after writing commands. The chip can respond with specific error codes (e.g., register write error, invalid length) which should be explicitly handled.
+
+These quirks are handled internally in the UART driver, but it is helpful to understand them when debugging or extending functionality.
+
+### Full UART calibration example
+
+```rust
+use bno055::{BNO055OperationMode, Bno055Uart, BNO055Calibration, BNO055_CALIB_SIZE};
+
+let mut imu = Bno055Uart::new(uart);
+
+imu.init(&mut delay)?;
+imu.set_mode(BNO055OperationMode::NDOF, &mut delay)?;
+
+while !imu.is_fully_calibrated()? {
+    // Provide motion to trigger calibration routine
+}
+
+let calib = imu.calibration_profile(&mut delay)?;
+
+// Store this in your NVRAM
+mcu.nvram_write(BNO055_CALIB_ADDR, calib.as_bytes(), BNO055_CALIB_SIZE)?;
+```
+
+> Note: This example mirrors the I2C calibration flow, adapted for UART usage.
 
 3. Read orientation data, quaternion or euler angles (roll, pitch, yaw/heading):
 
@@ -93,7 +147,7 @@ To calibrate the device's sensors for first time:
 ```rust
 use bno055::{BNO055Calibration, BNO055OperationMode, BNO055_CALIB_SIZE};
 
-let bno055 = ...;
+let mut bno055: Bno055I2c<_> = ...;
 
 // Enter NDOF (absolute orientation) sensor fusion mode which is also performing
 // a regular sensors calibration
@@ -115,7 +169,7 @@ To load a previously saved calibration profile:
 ```rust
 use bno055::{BNO055Calibration, BNO055OperationMode, BNO055_CALIB_SIZE};
 
-let bno055 = ...;
+let mut bno055: Bno055I2c<_> = ...;
 
 // Read saved calibration profile from MCUs NVRAM
 let mut buf = [0u8; BNO055_CALIB_SIZE];
@@ -134,10 +188,11 @@ chip on PCB as suitable for the designer and to match the chip's axes to physica
 axes in software later.
 
 ```rust
-use bno055::{AxisRemap, BNO055AxisConfig};
+use bno055::{Bno055I2c, AxisRemap, BNO055AxisConfig};
 // ...
 
 // Build remap configuration example with X and Y axes swapped:
+let mut bno055: Bno055I2c<_> = ...;
 let remap = AxisRemap::builder()
     .swap_x_with(BNO055AxisConfig::AXIS_AS_Y)
     .build()
@@ -165,6 +220,7 @@ It is also possible to flip the sign of either axis of the chip.
 Example of flipping X and Y axes:
 
 ```rust
+let mut bno055: Bno055I2c<_> = ...;
 bno055
     .set_axis_sign(BNO055AxisSign::X_NEGATIVE | bno055::BNO055AxisSign::Y_NEGATIVE)
     .expect("Unable to communicate");
@@ -177,6 +233,7 @@ For better performance, it is recommended to connect and use external 32k quartz
 You enable or disable its use by calling `set_external_crystal`:
 
 ```rust
+let mut bno055: Bno055I2c<_> = ...;
 bno055
     .set_external_crystal(true)
     .expect("Failed to set to external crystal");
@@ -191,18 +248,19 @@ To connect to device with an alternative address, enable its use by calling `wit
 
 ```rust
 // use default 0x29 address
-let mut bno = bno055::Bno055::new(i2c);
+let mut bno = bno055::Bno055I2c::new(i2c);
 
 // or:
 
 // use 0x28 address
-let mut bno = bno055::Bno055::new(i2c).with_alternative_address();
+let mut bno = bno055::Bno055I2c::new(i2c).with_alternative_address();
 ```
 
 ### Change BNO055 power mode
 
 ```rust
-use bno055::{Bno055, BNO055PowerMode};
+use bno055::{Bno055I2c, BNO055PowerMode};
+let mut bno055: Bno055I2c<_> = ...;
 // Normal mode
 bno055.set_power_mode(BNO055PowerMode::NORMAL)?;
 
@@ -218,6 +276,7 @@ bno055.set_power_mode(BNO055PowerMode::SUSPEND)?;
 Temperature is specified in degrees Celsius by default.
 
 ```rust
+let mut bno055: Bno055I2c<_> = ...;
 let temp: i8 = bno055.temperature()?;
 ```
 
@@ -249,7 +308,53 @@ What is done and tested and what is not yet:
 - [ ] Per-sensor configuration (when not in fusion mode)
 - [ ] Unit selection
 - [ ] Interrupts
+- [x] Async
+- [x] Uart support
 
 License: MIT.
 
 **Contributions welcomed!**
+
+## Examples
+
+The `examples/` directory contains complete, runnable examples for both I2C and UART usage.
+
+### I2C Example
+
+This example shows how to initialize and calibrate the BNO055 sensor using I2C on platforms like Arduino Uno:
+- File: `examples/calibrate_i2c.rs`
+
+### UART Example
+
+This example demonstrates using the BNO055 over UART with calibration:
+- File: `examples/calibrate_uart.rs`
+
+### Running on Arduino Uno
+
+To build and flash examples for an Arduino Uno, you must have the [avr-hal](https://github.com/Rahix/avr-hal) ecosystem set up:
+
+1. Install the AVR Rust target:
+   ```sh
+   rustup target add avr-atmega328p
+   ```
+
+2. Build the example:
+   ```sh
+   cargo build --example calibrate_uart --target avr-atmega328p
+   ```
+
+3. Flash using [`ravedude`](https://crates.io/crates/ravedude/0.2.0):
+
+   First, install `ravedude`:
+
+   ```sh
+   cargo install ravedude
+   ```
+
+   Then flash your Arduino Uno:
+
+   ```sh
+   ravedude uno -P /dev/ttyUSB0 -cb 57600 target/avr-atmega328p/debug/examples/calibrate_uart
+   ```
+
+   Replace `/dev/ttyUSB0` with the correct serial port for your setup (on macOS it will look like `/dev/tty.usbmodem*` or `/dev/cu.usbserial*`).
