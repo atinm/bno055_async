@@ -112,16 +112,19 @@ where
     where
         D: DelayNs,
     {
-        self.set_page(BNO055RegisterPage::PAGE_0).await?;
+        defmt::info!("Doing Soft reset");
+        self.reset(delay).await?;
+        defmt::info!("Done Soft reset");
 
         let id = self.id().await?;
         if id != regs::BNO055_ID {
             return Err(Error::InvalidChipId(id));
         }
 
-        self.soft_reset(delay).await?;
         self.set_mode(BNO055OperationMode::CONFIG_MODE, delay).await?;
         self.set_power_mode(BNO055PowerMode::NORMAL).await?;
+        self.set_page(BNO055RegisterPage::PAGE_0).await?;
+
         self.write_u8(regs::BNO055_SYS_TRIGGER, 0x00).await
             .map_err(Error::I2c)?;
 
@@ -130,12 +133,10 @@ where
 
     /// Resets the BNO055, initializing the register map to default values.
     /// More in section 3.2.
-    pub async fn soft_reset<D>(&mut self, delay: &mut D) -> Result<(), Error<E>>
+    async fn reset<D>(&mut self, delay: &mut D) -> Result<(), Error<E>>
     where
         D: DelayNs,
     {
-        self.set_page(BNO055RegisterPage::PAGE_0).await?;
-
         self.write_u8(
             regs::BNO055_SYS_TRIGGER,
             regs::BNO055_SYS_TRIGGER_RST_SYS_BIT,
