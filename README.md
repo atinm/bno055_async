@@ -315,13 +315,14 @@ License: MIT.
 
 **Contributions welcomed!**
 
+
 ## Examples
 
 The `examples/` directory contains complete, runnable examples for both I2C and UART usage.
 
 ### I2C Example
 
-This example shows how to initialize and calibrate the BNO055 sensor using I2C on platforms like Arduino Uno:
+This example shows how to initialize and calibrate the BNO055 sensor using I2C:
 - File: `examples/calibrate_i2c.rs`
 
 ### UART Example
@@ -329,32 +330,40 @@ This example shows how to initialize and calibrate the BNO055 sensor using I2C o
 This example demonstrates using the BNO055 over UART with calibration:
 - File: `examples/calibrate_uart.rs`
 
-### Running on Arduino Uno
+### Running on Raspberry Pi Pico (RP2040)
 
-To build and flash examples for an Arduino Uno, you must have the [avr-hal](https://github.com/Rahix/avr-hal) ecosystem set up:
+These examples are written for async Rust with [Embassy](https://embassy.dev) and tested on the RP2040 microcontroller (e.g., Raspberry Pi Pico).
 
-1. Install the AVR Rust target:
+1. Add the embedded target:
    ```sh
-   rustup target add avr-atmega328p
+   rustup target add thumbv6m-none-eabi
    ```
 
-2. Build the example:
+2. Install `probe-rs` for flashing:
    ```sh
-   cargo build --example calibrate_uart --target avr-atmega328p
+   cargo install probe-rs
    ```
 
-3. Flash using [`ravedude`](https://crates.io/crates/ravedude/0.2.0):
+3. Flash an example:
 
-   First, install `ravedude`:
-
+   **For UART:**
    ```sh
-   cargo install ravedude
+   cargo run --release --example calibrate_uart --target thumbv6m-none-eabi --features uart,defmt-03
    ```
 
-   Then flash your Arduino Uno:
-
+   **For I2C:**
    ```sh
-   ravedude uno -P /dev/ttyUSB0 -cb 57600 target/avr-atmega328p/debug/examples/calibrate_uart
+   cargo run --release --example calibrate_i2c --target thumbv6m-none-eabi --features i2c,defmt-03
    ```
 
-   Replace `/dev/ttyUSB0` with the correct serial port for your setup (on macOS it will look like `/dev/tty.usbmodem*` or `/dev/cu.usbserial*`).
+This will build and flash the example directly to the board using a supported debug probe (e.g., Raspberry Pi Debug Probe).
+
+Make sure you have the correct `.cargo/config.toml` configured to use `probe-rs` as the runner:
+
+```toml
+[build]
+target = "thumbv6m-none-eabi"
+
+[target.thumbv6m-none-eabi]
+runner = "probe-rs run --chip RP2040"
+```

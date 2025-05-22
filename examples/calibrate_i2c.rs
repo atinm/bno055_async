@@ -1,70 +1,57 @@
-use bno055::{BNO055OperationMode, Bno055I2c};
-use arduino_hal::hal::i2c::I2c;
-use arduino_hal::Delay;
-use mint::{EulerAngles, Quaternion};
+#![no_main]
+#![no_std]
 
-#[arduino_hal::entry]
-fn main() -> ! {
-    let dp = arduino_hal::Peripherals::take().unwrap();
-    let pins = arduino_hal::pins!(dp);
-    let mut delay = arduino_hal::Delay::new();
+use defmt_rtt as _;
+use panic_probe as _;
+use defmt::{info, warn};
 
-    let i2c = arduino_hal::I2c::new(
-        dp.TWI,
-        pins.a4.into_pull_up_input(),
-        pins.a5.into_pull_up_input(),
-        400_000,
-    );
+use embassy_rp::bind_interrupts;
+use embassy_rp::i2c::I2c;
+use embassy_rp::peripherals::{I2C0};
+use embassy_executor::Spawner;
+use embassy_time::{Delay, Timer};
+use bno055::types::BNO055OperationMode;
+use bno055::i2c::Bno055I2c;
 
-    let mut imu = Bno055I2c::new(i2c).with_alternative_address();
-    imu.init(&mut delay).unwrap();
-    imu.set_mode(BNO055OperationMode::NDOF, &mut delay).unwrap();
 
-    let mut status = imu.get_calibration_status().unwrap();
-    // println!("The IMU's calibration status is: {:?}", status);
+bind_interrupts!(struct Irqs {
+    I2C0_IRQ => embassy_rp::i2c::InterruptHandler<I2C0>;
+});
 
-    // Wait for device to auto-calibrate.
-    // Please perform steps necessary for auto-calibration to kick in.
-    // Required steps are described in Datasheet section 3.11
-    // Page 51, https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bno055-ds000.pdf (As of 2021-07-02)
-    // println!("- About to begin BNO055 IMU calibration...");
-    while !imu.is_fully_calibrated().unwrap() {
-        status = imu.get_calibration_status().unwrap();
-        delay.delay_ms(1000u16);
-        // println!("Calibration status: {:?}", status);
-    }
+#[no_mangle]
+extern "C" fn _defmt_timestamp() -> u64 {
+    use embassy_time::Instant;
+    Instant::now().as_ticks()
+}
 
-    let calib = imu.calibration_profile(&mut delay).unwrap();
-    imu.set_calibration_profile(calib, &mut delay).unwrap();
-    // println!("       - Calibration complete!");
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
+    let p = embassy_rp::init(Default::default());
 
-    // These are sensor fusion reading using the mint crate that the state will be read into
-    let mut euler_angles: EulerAngles<f32, ()>;
-    let mut quaternion: Quaternion<f32>;
+    let sda = p.PIN_0;
+    let scl = p.PIN_1;
+    let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, embassy_rp::i2c::Config::default());
+
+    let mut delay = Delay;
+
+    let mut bno055 = Bno055I2c::new(i2c);
+    bno055.init(&mut delay).await.unwrap();
+    bno055.set_mode(BNO055OperationMode::NDOF, &mut delay).await.unwrap();
+
+    info!("Waiting for BNO055 to calibrate");
+    while !bno055.is_fully_calibrated().await.unwrap() {}
+
+    info!("BNO055 calibrated");
 
     loop {
-        // Quaternion; due to a bug in the BNO055, this is recommended over Euler Angles
-        match imu.quaternion() {
-            Ok(val) => {
-                quaternion = val;
-                // println!("IMU Quaternion: {:?}", quaternion);
-                delay.delay_ms(500u16);
-            }
-            Err(_e) => {
-                // eprintln!("{:?}", e);
-            }
+        match bno055.quaternion().await {
+            Ok(quat) => info!(
+                "Quaternion: w={} x={} y={} z={}",
+                quat.s, quat.v.x, quat.v.y, quat.v.z
+            ),
+            Err(e) => warn!("BNO055 quaternion read error: {:?}", e),
         }
 
-        // Euler angles, directly read
-        match imu.euler_angles() {
-            Ok(val) => {
-                euler_angles = val;
-                // println!("IMU angles: {:?}", euler_angles);
-                delay.delay_ms(500u16);
-            }
-            Err(_e) => {
-                // eprintln!("{:?}", e);
-            }
-        }
+        Timer::after_millis(500).await;
     }
 }

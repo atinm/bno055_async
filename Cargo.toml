@@ -1,3 +1,6 @@
+[workspace]
+resolver = "2"
+
 [package]
 name = "bno055"
 description = "Bosch Sensortec BNO055 9-axis IMU driver"
@@ -28,27 +31,36 @@ mint = "^0.5.4"
 bitflags = "2"
 num-traits = { version = "0.2.15", default-features = false, features = ["libm"] }
 num-derive = "0.4.1"
+cortex-m-rt = "0.7"
+defmt = { version = "1.0.1", optional = true }
+defmt-rtt = { version = "1.0.0", optional = true }
 
-defmt = { version = "0.3", optional = true }
-
-embedded-io-async = { version = "0.6" }
-embassy-time = { version = "0.4.0", optional = true }
+embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
+embedded-io-async = { version = "0.6" }
+
+embassy-time = { version = "0.4.0", optional = true }
+embassy-rp = { version = "0.4.0", optional = true, features = ["rp2040", "time-driver", "defmt", "critical-section-impl"] }
+embassy-executor = { version = "0.7.0", optional = true, features = ["arch-cortex-m", "executor-thread", "defmt"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 [features]
 default = []
 std = []
 
-i2c = []
-uart = ["embassy-time"]
-
-defmt-03 = ["dep:defmt"]
+i2c = [
+    "embassy-executor/arch-cortex-m",
+    "embassy-executor/executor-thread",
+    "embassy-executor/defmt",
+    "embassy-rp",
+    "embassy-rp/rp2040",
+    "embassy-time",
+    "defmt",
+    "defmt-rtt"
+]
+uart = ["embassy-time", "embassy-executor", "embassy-rp"]
+defmt-03 = ["defmt", "defmt-rtt", "embassy-time"]
 serde = ["dep:serde", "mint/serde"]
-
-[dev-dependencies]
-arduino-hal = { git = "https://github.com/Rahix/avr-hal", branch = "main" }
-panic-halt = "0.2"
-avr-device = "0.5"
 
 [[example]]
 name = "calibrate_i2c"
@@ -57,3 +69,6 @@ path = "examples/calibrate_i2c.rs"
 [[example]]
 name = "calibrate_uart"
 path = "examples/calibrate_uart.rs"
+
+[package.metadata.cortex-m-rt]
+linker-script = "link.x"

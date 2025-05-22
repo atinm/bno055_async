@@ -1,52 +1,57 @@
-use bno055::{BNO055OperationMode, Bno055Uart};
-use arduino_hal::Delay;
-use mint::{EulerAngles, Quaternion};
+#![no_std]
+#![no_main]
 
-#[arduino_hal::entry]
-fn main() -> ! {
-    let dp = arduino_hal::Peripherals::take().unwrap();
-    let pins = arduino_hal::pins!(dp);
-    let mut delay = Delay::new();
+use defmt_rtt as _;
+use panic_probe as _;
 
-    // Setup UART on pins D0 (RX) and D1 (TX)
-    let serial = arduino_hal::usart::Usart::new(
-        dp.USART0,
-        pins.d0,
-        pins.d1.into_output(),
-        115200,
+use embassy_executor::main;
+use embassy_rp::bind_interrupts;
+use embassy_rp::peripherals::{UART0, PIN_0, PIN_1};
+use embassy_rp::uart::{BufferedUart, BufferedInterruptHandler, Config};
+use embassy_time::{Delay, Timer};
+use bno055::types::BNO055OperationMode;
+use bno055::uart::Bno055Uart;
+use static_cell::StaticCell;
+
+bind_interrupts!(struct Irqs {
+    UART0_IRQ => BufferedInterruptHandler<UART0>;
+});
+
+static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+
+#[main]
+async fn main(_spawner: embassy_executor::Spawner) {
+    let p = embassy_rp::init(Default::default());
+
+    let uart = BufferedUart::new(
+        p.UART0,
+        Irqs,
+        p.PIN_0,
+        p.PIN_1,
+        Config::default(),
+        RX_BUF.init([0; 256]),
+        TX_BUF.init([0; 256]),
     );
 
-    let mut imu = Bno055Uart::new(serial);
-    imu.init(&mut delay).unwrap();
-    imu.set_mode(BNO055OperationMode::NDOF, &mut delay).unwrap();
+    let mut imu = Bno055Uart::new(uart);
+    let mut delay = Delay;
 
-    let mut status = imu.get_calibration_status().unwrap();
-    while !imu.is_fully_calibrated().unwrap() {
-        status = imu.get_calibration_status().unwrap();
-        delay.delay_ms(1000u16);
+    imu.init(&mut delay).await.unwrap();
+    imu.set_mode(BNO055OperationMode::NDOF, &mut delay).await.unwrap();
+
+    while !imu.is_fully_calibrated().await.unwrap() {
+        Timer::after_millis(1000).await;
     }
 
-    let calib = imu.calibration_profile(&mut delay).unwrap();
-    imu.set_calibration_profile(calib, &mut delay).unwrap();
-
-    let mut euler_angles: EulerAngles<f32, ()>;
-    let mut quaternion: Quaternion<f32>;
+    let calib = imu.calibration_profile(&mut delay).await.unwrap();
+    imu.set_calibration_profile(calib, &mut delay).await.unwrap();
 
     loop {
-        match imu.quaternion() {
-            Ok(val) => {
-                quaternion = val;
-                delay.delay_ms(500u16);
-            }
-            Err(_) => {}
+        if let Ok(q) = imu.quaternion().await {
+            defmt::info!("Quaternion: {:?}", q);
         }
 
-        match imu.euler_angles() {
-            Ok(val) => {
-                euler_angles = val;
-                delay.delay_ms(500u16);
-            }
-            Err(_) => {}
-        }
+        Timer::after_millis(1000).await;
     }
 }
